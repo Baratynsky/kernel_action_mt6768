@@ -10,6 +10,119 @@ jobs:
       CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
       CCACHE_NOHASHDIR: "true"
       CCACHE_HARDLINK: "true"
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Prepare Environment
+      run: |
+        grep -v -E "^#|^\n" config.env | sed 's/ #.*//; s/#.*//' >> $GITHUB_ENV
+
+    - name: Remove unused packages
+      if: env.REMOVE_UNUSED_PACKAGES == 'true'
+      uses: jlumbroso/free-disk-space@main
+      with:
+        tool-cache: true
+        android: false
+        dotnet: true
+        haskell: true
+        large-packages: true
+        docker-images: true
+        swap-storage: false
+
+    - name: Set swap to 10G
+      uses: pierotofy/set-swap-space@master
+      with:
+        swap-size-gb: 10
+
+    - name: Setup kernel build environment
+      run: |
+        echo "BUILD_TIME=$(TZ=UTC date "+%Y%m%d%H%M")" >> $GITHUB_ENV
+        echo "DEVICE=$(echo ${{ env.KERNEL_CONFIG }} | sed 's!vendor/!!;s/_defconfig//;s/_user//;s/-perf//')" >> $GITHUB_ENV
+        sudo apt-get update
+        sudo apt-get install -y git ccache automake flex lzop bison gperf build-essential zip curl zlib1g-dev g++-multilib \
+          libxml2-utils bzip2 libbz2-dev libbz2-1.0 libghc-bzlib-dev squashfs-tools pngcrush schedtool dpkg-dev \
+          liblz4-tool make optipng maven libssl-dev pwgen libswitch-perl policycoreutils minicom \
+          libxml-sax-base-perl libxml-simple-perl bc libc6-dev-i386 lib32ncurses5-dev libx11-dev lib32z-dev \
+          libgl1-mesa-dev xsltproc unzip device-tree-compiler python2 python3 binutils-aarch64-linux-gnu
+        mkdir -p $GITHUB_WORKSPACE/kernel_workspace
+
+    - name: Download Toolchain
+      run: |
+        cd $GITHUB_WORKSPACE/kernel_workspace
+        if [ "${{ env.USE_CUSTOM_CLANG }}" == 'true' ]; then
+          TOOLCHAIN_SOURCE=${{ env.CUSTOM_CLANG_SOURCE }}
+          TOOLCHAIN_TYPE="clang"
+        elif [ "${{ env.ENABLE_GCC_AOSP }}" == 'true' ]; then
+          TOOLCHAIN_SOURCE="https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/${{ env.ENABLE_GCC_ARM64 && 'aarch64/aarch64-linux-android-4.9' || 'arm/arm-linux-androideabi-4.9' }} +archive/refs/tags/android-12.1.0_r27.tar.gz"
+          TOOLCHAIN_TYPE="gcc"
+        else
+          echo "No toolchain specified."
+          exit 1
+        fi
+
+        if [[ $TOOLCHAIN_SOURCE == *'.tar.gz' ]]; then
+          wget -nv -O toolchain.tar.gz $TOOLCHAIN_SOURCE
+          mkdir $TOOLCHAIN_TYPE
+          tar -C $TOOLCHAIN_TYPE/ -zxvf toolchain.tar.gz
+        elif [[ $TOOLCHAIN_SOURCE == *'.git' ]]; then
+          git clone $TOOLCHAIN_SOURCE -b ${{ env.CUSTOM_CLANG_BRANCH }} $TOOLCHAIN_TYPE --depth=1
+        else
+          echo "Unsupported toolchain source format."
+          exit 1
+        fi
+
+    - name: Download kernel source
+      run: |
+        cd $GITHUB_WORKSPACE/kernel_workspace
+        git clone --recursive ${{ env.KERNEL_SOURCE }} -b ${{ env.KERNEL_SOURCE_BRANCH }} android-kernel --depth=1
+        echo "LOCALVERSION=$(cat android-kernel/localversion)" >> $GITHUB_ENV
+
+    - name: Setup Kernel Configuration
+      run: |
+        cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+        for patch in KSU_HOOKS_PATCH OLD_ANDROID_SUPPORT; do
+          if [ "${{ env["ADD_${patch}_CONFIG"] }}" == 'true' ]; then
+            git apply $GITHUB_WORKSPACE/patches/${patch}.patch
+            echo "CONFIG_${patch}=y" >> arch/${{ env.KERNEL_ARCH }}/configs/${{ env.KERNEL_CONFIG }}
+          fi
+        done
+
+    - name: Build kernel
+      run: |
+        cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+        export PATH=$GITHUB_WORKSPACE/kernel_workspace/${{ env.USE_CUSTOM_GCC ? 'gcc' : 'clang' }}-bin:$PATH
+        make -j$(nproc --all) CC=${{ env.USE_CUSTOM_GCC ? 'gcc' : 'clang' }} O=out ARCH=${{ env.KERNEL_ARCH }} ${{ env.KERNEL_CONFIG }}
+
+    - name: Check kernel output
+      run: |
+        cd $GITHUB_WORKSPACE/kernel_workspace
+        if [ -f android-kernel/out/arch/${{ env.KERNEL_ARCH }}/boot/${{ env.KERNEL_IMAGE_NAME }} ]; then
+          echo "CHECK_FILE_IS_OK=true" >> $GITHUB_ENV
+        else
+          echo "Kernel output file is empty"
+          exit 1
+        fi
+
+    - name: Upload artifacts
+      if: env.CHECK_FILE_IS_OK == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: Kernel Artifacts
+        path: |
+          kernel_workspace/AnyKernel3/*
+          kernel_workspace/android-kernel/out/arch/${{ env.KERNEL_ARCH }}/boot/${{ env.KERNEL_IMAGE_NAME }}
+name: Build Kernel
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Kernel by ${{ github.actor }}
+    runs-on: ubuntu-22.04
+    env:
+      CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
+      CCACHE_NOHASHDIR: "true"
+      CCACHE_HARDLINK: "true"
     steps:
     - uses: actions/checkout@v4
     - name: Prepare Environment
