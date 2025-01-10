@@ -34,6 +34,19 @@ jobs:
       with:
         swap-size-gb: 10
 
+    - name: Setup kernel build environment
+      run: |
+        echo "BUILD_TIME=$(TZ=UTC date "+%Y%m%d%H%M")" >> $GITHUB_ENV
+        echo "DEVICE=$(echo ${{ env.KERNEL_CONFIG }} | sed 's!vendor/!!;s/_defconfig//;s/_user//;s/-perf//')" >> $GITHUB_ENV
+        sudo apt-get update && sudo apt-get install -y \
+         git ccache build-essential \
+         bison flex libssl-dev \
+         bzip2 libbz2-dev liblz4-tool zlib1g-dev \
+         gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+         libncurses5-dev libncursesw5-dev \
+         libxml2-utils squashfs-tools \
+         python3 device-tree-compiler
+
     - name: Download Toolchain
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
@@ -64,19 +77,6 @@ jobs:
         cd $GITHUB_WORKSPACE/kernel_workspace
         git clone --recursive ${{ env.KERNEL_SOURCE }} -b ${{ env.KERNEL_SOURCE_BRANCH }} android-kernel --depth=1
         echo "LOCALVERSION=$(cat android-kernel/localversion)" >> $GITHUB_ENV
-
-    - name: Setup kernel build environment
-      run: |
-        echo "BUILD_TIME=$(TZ=UTC date "+%Y%m%d%H%M")" >> $GITHUB_ENV
-        echo "DEVICE=$(echo ${{ env.KERNEL_CONFIG }} | sed 's!vendor/!!;s/_defconfig//;s/_user//;s/-perf//')" >> $GITHUB_ENV
-        sudo apt-get update && sudo apt-get install -y \
-         git ccache build-essential \
-         bison flex libssl-dev \
-         bzip2 libbz2-dev liblz4-tool zlib1g-dev \
-         gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-         libncurses5-dev libncursesw5-dev \
-         libxml2-utils squashfs-tools \
-         python3 device-tree-compiler
 
     - name: Build kernel
       run: |
