@@ -60,7 +60,7 @@ jobs:
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
         for patch in KSU_HOOKS_PATCH OLD_ANDROID_SUPPORT; do
-          if [ "${{ env['ADD_' + patch + '_CONFIG'] }}" == 'true' ]; then
+          if [ "${{ env['ADD_' }}${{ patch }}${{ '_CONFIG'] }}" == 'true' ]; then
             git apply $GITHUB_WORKSPACE/patches/${patch}.patch && echo "CONFIG_${patch}=y" >> arch/${{ env.KERNEL_ARCH }}/configs/${{ env.KERNEL_CONFIG }}
           fi
         done
@@ -68,8 +68,14 @@ jobs:
     - name: Build kernel
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-        export PATH=$GITHUB_WORKSPACE/kernel_workspace/${{ env.USE_CUSTOM_GCC ? 'gcc' : 'clang' }}-bin:$PATH
-        make -j$(nproc --all) CC=${{ env.USE_CUSTOM_GCC ? 'gcc' : 'clang' }} O=out ARCH=${{ env.KERNEL_ARCH }} ${{ env.KERNEL_CONFIG }}
+        if [ "${{ env.USE_CUSTOM_GCC }}" == 'true' ]; then
+          export PATH=$GITHUB_WORKSPACE/kernel_workspace/gcc-bin:$PATH
+          CC=gcc
+        else
+          export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-bin:$PATH
+          CC=clang
+        fi
+        make -j$(nproc --all) CC=$CC O=out ARCH=${{ env.KERNEL_ARCH }} ${{ env.KERNEL_CONFIG }}
 
     - name: Check kernel output
       run: |
