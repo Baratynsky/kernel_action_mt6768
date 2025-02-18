@@ -16,6 +16,18 @@ jobs:
       run: |
         grep -v -E "^#|^\n" config.env | sed 's/ #.*//; s/#.*//' >> $GITHUB_ENV
 
+    - name: Cache Clang/GCC
+      uses: actions/cache@v3
+      id: compiler-cache
+      with:
+        path: |
+          ${{ github.workspace }}/kernel_workspace/clang
+          ${{ github.workspace }}/kernel_workspace/gcc-64
+          ${{ github.workspace }}/kernel_workspace/gcc-32
+        key: ${{ runner.os }}-compilers-${{ hashFiles('config.env') }}
+        restore-keys: |
+          ${{ runner.os }}-compilers-
+
     - name: Remove unused packages
       if: env.REMOVE_UNUSED_PACKAGES == 'true'
       uses: jlumbroso/free-disk-space@main
@@ -50,7 +62,7 @@ jobs:
         tar -C clang/ -zxvf clang-${{ env.CLANG_VERSION }}.tar.gz
 
     - name: Download Custom Clang
-      if: env.USE_CUSTOM_CLANG == 'true' && env.USE_CUSTOM_GCC != 'true' && env.ENABLE_GCC_AOSP != 'true'
+      if: env.USE_CUSTOM_CLANG == 'true' && env.USE_CUSTOM_GCC != 'true' && env.ENABLE_GCC_AOSP != 'true' && steps.compiler-cache.outputs.cache-hit != 'true'
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
         if [[ ${{ env.CUSTOM_CLANG_SOURCE }} == *'.tar.gz' ]]; then
